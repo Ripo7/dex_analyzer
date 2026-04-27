@@ -40,20 +40,26 @@ def _score_color(score: float, ranked: list[RankedToken]) -> int:
     return 0x3498DB
 
 
-def _build_table_text(ranked: list[RankedToken]) -> str:
-    header = f"{'#':>2}  {'Symbol':<8} {'Chain':<7} {'Status':<9} {'Price':>10} {'24hChg':>7} {'Vol':>8} {'Score':>6}"
-    sep = "-" * len(header)
-    rows = [header, sep]
+def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
+    lines: list[str] = []
     for i, r in enumerate(ranked, 1):
         tok = r.token
         chg = tok.price_change_24h
         chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
-        spike = "⚡" if r.volume_spike else " "
-        rows.append(
-            f"{i:>2}  {tok.symbol:<8} {tok.chain.upper():<7} {r.status:<9} "
-            f"${tok.price_usd:<9.4g} {chg_str:>7} {_fmt_usd(tok.volume_24h)+spike:>8} {r.score:>6.3f}"
+        status_emoji = _STATUS_EMOJI.get(r.status, "")
+        spike = " ⚡" if r.volume_spike else ""
+        lines.append(
+            f"**#{i}** {tok.symbol} · {tok.chain.upper()}  {status_emoji} {r.status}{spike}\n"
+            f"`{r.score:.3f}`  {chg_str}  {_fmt_usd(tok.volume_24h)}"
         )
-    return "\n".join(rows)
+    top_color = _score_color(ranked[0].score, ranked) if ranked else 0x3498DB
+    embed = discord.Embed(
+        title="📊 Token Dashboard",
+        description="\n\n".join(lines),
+        color=top_color,
+    )
+    embed.set_footer(text=f"{len(ranked)} tokens  |  Next scan in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    return embed
 
 
 def _build_token_embed(r: RankedToken, rank: int, total: int, color: int) -> discord.Embed:
@@ -62,20 +68,20 @@ def _build_token_embed(r: RankedToken, rank: int, total: int, color: int) -> dis
     chg = tok.price_change_24h
     chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
     age = f"{tok.age_days}d" if tok.age_days is not None else "?"
+    status_line = r.status + (" ⚡" if r.volume_spike else "")
 
     embed = discord.Embed(
         title=f"{status_emoji} #{rank} {tok.symbol} — {tok.chain.upper()}",
+        description=f"**{status_line}**  ·  Age {age}",
         color=color,
     )
     embed.add_field(name="Score", value=f"{r.score:.3f}", inline=True)
-    embed.add_field(name="Status", value=r.status + (" ⚡" if r.volume_spike else ""), inline=True)
-    embed.add_field(name="Age", value=age, inline=True)
     embed.add_field(name="Price", value=f"${tok.price_usd:.4g}", inline=True)
     embed.add_field(name="24h Change", value=chg_str, inline=True)
     embed.add_field(name="Vol 24h", value=_fmt_usd(tok.volume_24h), inline=True)
     embed.add_field(name="Mkt Cap", value=_fmt_usd(tok.market_cap) if tok.market_cap else "—", inline=True)
     embed.add_field(name="Liquidity", value=_fmt_usd(tok.liquidity_usd), inline=True)
-    embed.set_footer(text=f"Token {rank}/{total}  |  Next auto-scan in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    embed.set_footer(text=f"Token {rank}/{total}  |  Next scan in ~{SCAN_INTERVAL_HOURS:.0f}h")
     return embed
 
 
@@ -95,9 +101,8 @@ def _build_positions_embed() -> discord.Embed | None:
         total_pnl += usd
         sign = "+" if pct >= 0 else ""
         lines.append(
-            f"**{sym}** {p.get('chain','').upper()}  "
-            f"${p['entry_price']:.4g} → ${current:.4g}  "
-            f"{sign}{pct:.1f}% ({sign}${usd:.2f})"
+            f"**{sym}** · {p.get('chain','').upper()}\n"
+            f"${p['entry_price']:.4g} → ${current:.4g}  {sign}{pct:.1f}% ({sign}${usd:.2f})"
         )
 
     color = 0x2ECC71 if total_pnl >= 0 else 0xE74C3C
@@ -137,9 +142,8 @@ async def _run_scan(channel: discord.abc.Messageable) -> None:
 
     await status_msg.edit(content=f"✅ Found **{len(ranked)}** token(s) — full dashboard below")
 
-    # Full table as code block
-    table = _build_table_text(ranked)
-    await channel.send(f"```\n{table}\n```")
+    summary_embed = _build_summary_embed(ranked)
+    await channel.send(embed=summary_embed)
 
     # Detailed embeds for top 3
     for i, r in enumerate(ranked[:3]):
