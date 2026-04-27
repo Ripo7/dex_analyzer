@@ -11,7 +11,7 @@ from .goplus import fetch_safety
 from . import positions as pos_store
 
 DISCORD_CHANNEL_ID: int = 0  # set by run()
-SCAN_INTERVAL_HOURS = float(os.environ.get("SCAN_INTERVAL_HOURS", "4"))
+SCAN_INTERVAL_HOURS = float(os.environ.get("SCAN_INTERVAL_HOURS", "1"))
 POSITION_SIZE = float(os.environ.get("POSITION_SIZE", "100"))
 TOP_N = int(os.environ.get("TOP_N", "10"))
 
