@@ -122,9 +122,14 @@ async def _run_scan(channel: discord.abc.Messageable) -> None:
     status_msg = await channel.send("🔍 Scanning DexScreener…")
     loop = asyncio.get_event_loop()
 
-    ranked: list[RankedToken] = await loop.run_in_executor(
-        None, lambda: discover_and_rank(top_n=TOP_N)
-    )
+    try:
+        ranked: list[RankedToken] = await loop.run_in_executor(
+            None, lambda: discover_and_rank(top_n=TOP_N)
+        )
+    except Exception as exc:
+        await status_msg.edit(content=f"❌ Scan failed: {exc}")
+        print(f"[scan error] {exc}", flush=True)
+        return
 
     if not ranked:
         await status_msg.edit(content="🔎 Scan complete — no tokens passed filters.")
@@ -175,7 +180,9 @@ async def _wait_ready() -> None:
 
 @bot.event
 async def on_ready() -> None:
-    print(f"Logged in as {bot.user}  |  auto-scan every {SCAN_INTERVAL_HOURS:.0f}h")
+    print(f"Logged in as {bot.user}  |  auto-scan every {SCAN_INTERVAL_HOURS:.0f}h", flush=True)
+    channel = bot.get_channel(DISCORD_CHANNEL_ID)
+    print(f"Target channel: {channel} (ID={DISCORD_CHANNEL_ID})", flush=True)
     if not _auto_scan.is_running():
         _auto_scan.start()
 
