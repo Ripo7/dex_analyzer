@@ -6,7 +6,8 @@ import discord
 from discord.ext import commands, tasks
 
 from .analyser import discover_and_rank
-from .models import RankedToken
+from .models import RankedToken, TokenSafety
+from .goplus import fetch_safety
 from . import positions as pos_store
 
 DISCORD_CHANNEL_ID: int = 0  # set by run()
@@ -41,6 +42,33 @@ def _fmt_usd(v: float) -> str:
     return f"${v:.0f}"
 
 
+def _fmt_safety(safety: TokenSafety | None) -> str | None:
+    if safety is None:
+        return None
+    parts: list[str] = []
+
+    if safety.lp_locked_pct >= 80:
+        parts.append(f"🔒 LP {safety.lp_locked_pct:.0f}%")
+    elif safety.lp_locked_pct > 0:
+        parts.append(f"⚠️ LP {safety.lp_locked_pct:.0f}%")
+    else:
+        parts.append("🔓 LP ?")
+
+    if safety.sell_tax > 10:
+        parts.append(f"🚨 Tax {safety.buy_tax:.0f}/{safety.sell_tax:.0f}%")
+    elif safety.sell_tax > 0 or safety.buy_tax > 0:
+        parts.append(f"⚠️ Tax {safety.buy_tax:.0f}/{safety.sell_tax:.0f}%")
+    else:
+        parts.append("✅ Tax 0/0%")
+
+    parts.append("⚠️ Mintable" if safety.is_mintable else "✅ No mint")
+
+    if safety.is_blacklist:
+        parts.append("⚠️ Freeze")
+
+    return "  ·  ".join(parts)
+
+
 def _score_color(score: float, ranked: list[RankedToken]) -> int:
     if not ranked:
         return 0x3498DB
@@ -52,7 +80,7 @@ def _score_color(score: float, ranked: list[RankedToken]) -> int:
     return 0x3498DB
 
 
-def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
+def _build_summary_embed(ranked: list[RankedToken], use_goplus: bool = True) -> discord.Embed:
     lines: list[str] = []
     for r in ranked:
         tok = r.token
@@ -60,18 +88,23 @@ def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
         chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
         status_emoji = _STATUS_EMOJI.get(r.status, "")
         spike = " ⚡" if r.volume_spike else ""
-        lines.append(
+        entry = (
             f"**{tok.symbol}** · {tok.chain.upper()}  `{_fmt_age(tok)}`  {status_emoji}{spike}\n"
             f"Score `{r.score:.3f}` · {chg_str} · Vol {_fmt_usd(tok.volume_24h)} · Liq {_fmt_usd(tok.liquidity_usd)}"
         )
+        safety_line = _fmt_safety(tok.safety)
+        if safety_line:
+            entry += f"\n{safety_line}"
+        lines.append(entry)
     top_color = _score_color(ranked[0].score, ranked) if ranked else 0x3498DB
     now = datetime.now(tz=timezone.utc).strftime("%H:%M UTC")
+    safety_label = "🛡️ GoPlus verified" if use_goplus else "⚠️ No safety check"
     embed = discord.Embed(
         title=f"🔍 New Tokens — Last Hour  ({len(ranked)} found)",
         description="\n\n".join(lines),
         color=top_color,
     )
-    embed.set_footer(text=f"Scanned at {now}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    embed.set_footer(text=f"Scanned at {now}  |  {safety_label}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
     return embed
 
 
@@ -116,8 +149,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-async def _run_scan(channel: discord.abc.Messageable) -> None:
-    status_msg = await channel.send("🔍 Scanning DexScreener…")
+async def _run_scan(channel: discord.abc.Messageable, use_goplus: bool = True) -> None:
+    label = "🔍 Scanning DexScreener…" if not use_goplus else "🔍 Scanning DexScreener + GoPlus…"
+    status_msg = await channel.send(label)
     loop = asyncio.get_event_loop()
 
     try:
@@ -136,8 +170,23 @@ async def _run_scan(channel: discord.abc.Messageable) -> None:
         await status_msg.edit(content="🔎 No tokens under 1h found.")
         return
 
+    if use_goplus:
+        # Fetch GoPlus safety data for all fresh tokens in parallel
+        safety_results = await asyncio.gather(
+            *[loop.run_in_executor(None, lambda r=r: fetch_safety(r.token.chain, r.token.address))
+              for r in fresh]
+        )
+        for r, safety in zip(fresh, safety_results):
+            r.token.safety = safety
+
+        # Drop confirmed honeypots
+        fresh = [r for r in fresh if not (r.token.safety and r.token.safety.is_honeypot)]
+        if not fresh:
+            await status_msg.edit(content="🔎 All tokens under 1h flagged as honeypots.")
+            return
+
     # Edit the scanning indicator into the result — one message total
-    embed = _build_summary_embed(fresh)
+    embed = _build_summary_embed(fresh, use_goplus=use_goplus)
     await status_msg.edit(content="", embed=embed)
 
     # Auto-open positions for top 2 fresh tokens
@@ -179,7 +228,14 @@ async def on_ready() -> None:
 
 @bot.command(name="scan")
 async def scan_cmd(ctx: commands.Context) -> None:
-    await _run_scan(ctx.channel)
+    """Scan with GoPlus safety check — honeypots filtered, safety line shown."""
+    await _run_scan(ctx.channel, use_goplus=True)
+
+
+@bot.command(name="scanraw")
+async def scan_raw_cmd(ctx: commands.Context) -> None:
+    """Scan without GoPlus — faster, shows all tokens including unverified ones."""
+    await _run_scan(ctx.channel, use_goplus=False)
 
 
 def run() -> None:
