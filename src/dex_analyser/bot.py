@@ -193,5 +193,6 @@ def run() -> None:
     if not channel_id:
         raise RuntimeError("DISCORD_CHANNEL_ID environment variable is not set")
     global DISCORD_CHANNEL_ID  # noqa: PLW0603
-    DISCORD_CHANNEL_ID = int(channel_id)
+    # Accept full Discord link or raw ID
+    DISCORD_CHANNEL_ID = int(channel_id.rstrip("/").split("/")[-1])
     bot.run(token)
