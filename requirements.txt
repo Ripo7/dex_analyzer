@@ -1,0 +1,3 @@
+ntscraper>=0.3.6
+requests>=2.31
+rich>=13.0
