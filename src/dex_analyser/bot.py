@@ -80,7 +80,7 @@ def _score_color(score: float, ranked: list[RankedToken]) -> int:
     return 0x3498DB
 
 
-def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
+def _build_summary_embed(ranked: list[RankedToken], use_goplus: bool = True) -> discord.Embed:
     lines: list[str] = []
     for r in ranked:
         tok = r.token
@@ -98,12 +98,13 @@ def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
         lines.append(entry)
     top_color = _score_color(ranked[0].score, ranked) if ranked else 0x3498DB
     now = datetime.now(tz=timezone.utc).strftime("%H:%M UTC")
+    safety_label = "🛡️ GoPlus verified" if use_goplus else "⚠️ No safety check"
     embed = discord.Embed(
         title=f"🔍 New Tokens — Last Hour  ({len(ranked)} found)",
         description="\n\n".join(lines),
         color=top_color,
     )
-    embed.set_footer(text=f"Scanned at {now}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    embed.set_footer(text=f"Scanned at {now}  |  {safety_label}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
     return embed
 
 
@@ -148,8 +149,9 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-async def _run_scan(channel: discord.abc.Messageable) -> None:
-    status_msg = await channel.send("🔍 Scanning DexScreener…")
+async def _run_scan(channel: discord.abc.Messageable, use_goplus: bool = True) -> None:
+    label = "🔍 Scanning DexScreener…" if not use_goplus else "🔍 Scanning DexScreener + GoPlus…"
+    status_msg = await channel.send(label)
     loop = asyncio.get_event_loop()
 
     try:
@@ -168,22 +170,23 @@ async def _run_scan(channel: discord.abc.Messageable) -> None:
         await status_msg.edit(content="🔎 No tokens under 1h found.")
         return
 
-    # Fetch GoPlus safety data for all fresh tokens in parallel
-    safety_results = await asyncio.gather(
-        *[loop.run_in_executor(None, lambda r=r: fetch_safety(r.token.chain, r.token.address))
-          for r in fresh]
-    )
-    for r, safety in zip(fresh, safety_results):
-        r.token.safety = safety
+    if use_goplus:
+        # Fetch GoPlus safety data for all fresh tokens in parallel
+        safety_results = await asyncio.gather(
+            *[loop.run_in_executor(None, lambda r=r: fetch_safety(r.token.chain, r.token.address))
+              for r in fresh]
+        )
+        for r, safety in zip(fresh, safety_results):
+            r.token.safety = safety
 
-    # Drop confirmed honeypots
-    fresh = [r for r in fresh if not (r.token.safety and r.token.safety.is_honeypot)]
-    if not fresh:
-        await status_msg.edit(content="🔎 All tokens under 1h flagged as honeypots.")
-        return
+        # Drop confirmed honeypots
+        fresh = [r for r in fresh if not (r.token.safety and r.token.safety.is_honeypot)]
+        if not fresh:
+            await status_msg.edit(content="🔎 All tokens under 1h flagged as honeypots.")
+            return
 
     # Edit the scanning indicator into the result — one message total
-    embed = _build_summary_embed(fresh)
+    embed = _build_summary_embed(fresh, use_goplus=use_goplus)
     await status_msg.edit(content="", embed=embed)
 
     # Auto-open positions for top 2 fresh tokens
@@ -225,7 +228,14 @@ async def on_ready() -> None:
 
 @bot.command(name="scan")
 async def scan_cmd(ctx: commands.Context) -> None:
-    await _run_scan(ctx.channel)
+    """Scan with GoPlus safety check — honeypots filtered, safety line shown."""
+    await _run_scan(ctx.channel, use_goplus=True)
+
+
+@bot.command(name="scanraw")
+async def scan_raw_cmd(ctx: commands.Context) -> None:
+    """Scan without GoPlus — faster, shows all tokens including unverified ones."""
+    await _run_scan(ctx.channel, use_goplus=False)
 
 
 def run() -> None:
