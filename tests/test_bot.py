@@ -53,20 +53,23 @@ def test_score_color_low_tier():
     assert _score_color(0.2, ranked) == 0x3498DB
 
 
-def test_build_table_text_contains_symbol():
-    from dex_analyser.bot import _build_table_text
+def test_build_summary_embed_contains_symbol():
+    import discord
+    from dex_analyser.bot import _build_summary_embed
     ranked = [_ranked("PIPPIN", score=0.9, status="NEW")]
-    text = _build_table_text(ranked)
-    assert "PIPPIN" in text
-    assert "NEW" in text
-    assert "0.900" in text
+    embed = _build_summary_embed(ranked)
+    assert isinstance(embed, discord.Embed)
+    assert "PIPPIN" in embed.description
+    assert "NEW" in embed.description
+    assert "0.900" in embed.description
 
 
-def test_build_table_text_volume_spike_marker():
-    from dex_analyser.bot import _build_table_text
+def test_build_summary_embed_volume_spike_marker():
+    import discord
+    from dex_analyser.bot import _build_summary_embed
     ranked = [_ranked("BONK", score=0.7, volume_spike=True)]
-    text = _build_table_text(ranked)
-    assert "⚡" in text
+    embed = _build_summary_embed(ranked)
+    assert "⚡" in embed.description
 
 
 def test_build_token_embed_fields():
