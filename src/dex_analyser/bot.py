@@ -21,6 +21,17 @@ _SCORE_COLORS = [
 ]
 
 
+def _fmt_age(tok) -> str:
+    mins = tok.age_minutes
+    if mins is None:
+        return "?"
+    if mins < 60:
+        return f"{mins}m"
+    if mins < 60 * 24:
+        return f"{mins // 60}h"
+    return f"{mins // (60 * 24)}d"
+
+
 def _fmt_usd(v: float) -> str:
     if v >= 1_000_000:
         return f"${v/1_000_000:.2f}M"
@@ -50,7 +61,7 @@ def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
         spike = " ⚡" if r.volume_spike else ""
         lines.append(
             f"**#{i}** {tok.symbol} · {tok.chain.upper()}  {status_emoji} {r.status}{spike}\n"
-            f"`{r.score:.3f}`  {chg_str}  {_fmt_usd(tok.volume_24h)}"
+            f"`{r.score:.3f}`  {chg_str}  {_fmt_usd(tok.volume_24h)}  Age {_fmt_age(tok)}"
         )
     top_color = _score_color(ranked[0].score, ranked) if ranked else 0x3498DB
     embed = discord.Embed(
@@ -67,7 +78,7 @@ def _build_token_embed(r: RankedToken, rank: int, total: int, color: int) -> dis
     status_emoji = _STATUS_EMOJI.get(r.status, "")
     chg = tok.price_change_24h
     chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
-    age = f"{tok.age_days}d" if tok.age_days is not None else "?"
+    age = _fmt_age(tok)
     status_line = r.status + (" ⚡" if r.volume_spike else "")
 
     embed = discord.Embed(
