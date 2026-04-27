@@ -10,10 +10,11 @@ _CACHE_PATH = Path.home() / ".dex-analyser" / "history.json"
 _NEW_TOKEN_DAYS = 7
 _RESURGENT_SPIKE_RATIO = 2.0
 
-_MIN_LIQUIDITY = 10_000
-_MIN_VOLUME = 50_000
-_MAX_PRICE_CHANGE = 2_000
+_MIN_LIQUIDITY = 50_000
+_MIN_VOLUME = 150_000
+_MAX_PRICE_CHANGE = 500
 _MAX_VOL_LIQ_RATIO = 50
+_MIN_SCORE = 0.30
 _DIGIT_RE = re.compile(r"\d")
 
 
@@ -120,7 +121,7 @@ def analyse(
         )
 
     ranked.sort(key=lambda r: r.score, reverse=True)
-    result = ranked[:top_n]
+    result = [r for r in ranked[:top_n] if r.score >= _MIN_SCORE]
 
     _save_history({tok.symbol: tok.volume_24h for tok in clean})
     return result

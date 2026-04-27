@@ -40,21 +40,21 @@ def test_new_token_status(_load, _save):
 
 
 @patch("dex_analyser.analyser._save_history")
-@patch("dex_analyser.analyser._load_history", return_value={"PEPE": 20_000})
+@patch("dex_analyser.analyser._load_history", return_value={"PEPE": 150_000})
 def test_resurgent_token_status(_load, _save):
     from dex_analyser.analyser import analyse
     # volume 2× previous → RESURGENT
-    ranked = analyse([_token("PEPE", volume=80_000, created_days_ago=200)], top_n=1)
+    ranked = analyse([_token("PEPE", volume=600_000, created_days_ago=200)], top_n=1)
     assert ranked[0].status == "RESURGENT"
     assert ranked[0].volume_spike is True
 
 
 @patch("dex_analyser.analyser._save_history")
-@patch("dex_analyser.analyser._load_history", return_value={"SOL": 70_000})
+@patch("dex_analyser.analyser._load_history", return_value={"SOL": 190_000})
 def test_trending_token_status(_load, _save):
     from dex_analyser.analyser import analyse
     # volume NOT 2× previous → TRENDING
-    ranked = analyse([_token("SOL", volume=80_000, created_days_ago=500)], top_n=1)
+    ranked = analyse([_token("SOL", volume=200_000, created_days_ago=500)], top_n=1)
     assert ranked[0].status == "TRENDING"
     assert ranked[0].volume_spike is False
 
