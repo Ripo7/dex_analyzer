@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
@@ -53,50 +54,28 @@ def _score_color(score: float, ranked: list[RankedToken]) -> int:
 
 def _build_summary_embed(ranked: list[RankedToken]) -> discord.Embed:
     lines: list[str] = []
-    for i, r in enumerate(ranked, 1):
+    for r in ranked:
         tok = r.token
         chg = tok.price_change_24h
         chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
         status_emoji = _STATUS_EMOJI.get(r.status, "")
         spike = " ⚡" if r.volume_spike else ""
         lines.append(
-            f"**#{i}** {tok.symbol} · {tok.chain.upper()}  {status_emoji} {r.status}{spike}\n"
-            f"`{r.score:.3f}`  {chg_str}  {_fmt_usd(tok.volume_24h)}  Age {_fmt_age(tok)}"
+            f"**{tok.symbol}** · {tok.chain.upper()}  `{_fmt_age(tok)}`  {status_emoji}{spike}\n"
+            f"Score `{r.score:.3f}` · {chg_str} · Vol {_fmt_usd(tok.volume_24h)} · Liq {_fmt_usd(tok.liquidity_usd)}"
         )
     top_color = _score_color(ranked[0].score, ranked) if ranked else 0x3498DB
+    now = datetime.now(tz=timezone.utc).strftime("%H:%M UTC")
     embed = discord.Embed(
-        title="📊 Token Dashboard",
+        title=f"🔍 New Tokens — Last Hour  ({len(ranked)} found)",
         description="\n\n".join(lines),
         color=top_color,
     )
-    embed.set_footer(text=f"{len(ranked)} tokens  |  Next scan in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    embed.set_footer(text=f"Scanned at {now}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
     return embed
 
 
-def _build_token_embed(r: RankedToken, rank: int, total: int, color: int) -> discord.Embed:
-    tok = r.token
-    status_emoji = _STATUS_EMOJI.get(r.status, "")
-    chg = tok.price_change_24h
-    chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
-    age = _fmt_age(tok)
-    status_line = r.status + (" ⚡" if r.volume_spike else "")
-
-    embed = discord.Embed(
-        title=f"{status_emoji} #{rank} {tok.symbol} — {tok.chain.upper()}",
-        description=f"**{status_line}**  ·  Age {age}",
-        color=color,
-    )
-    embed.add_field(name="Score", value=f"{r.score:.3f}", inline=True)
-    embed.add_field(name="Price", value=f"${tok.price_usd:.4g}", inline=True)
-    embed.add_field(name="24h Change", value=chg_str, inline=True)
-    embed.add_field(name="Vol 24h", value=_fmt_usd(tok.volume_24h), inline=True)
-    embed.add_field(name="Mkt Cap", value=_fmt_usd(tok.market_cap) if tok.market_cap else "—", inline=True)
-    embed.add_field(name="Liquidity", value=_fmt_usd(tok.liquidity_usd), inline=True)
-    embed.set_footer(text=f"Token {rank}/{total}  |  Next scan in ~{SCAN_INTERVAL_HOURS:.0f}h")
-    return embed
-
-
-def _build_positions_embed() -> discord.Embed | None:
+def _build_positions_embed(new_entries: list[str] | None = None) -> discord.Embed | None:
     positions = pos_store.load()
     open_pos = {s: p for s, p in positions.items() if p.get("status") == "open"}
     if not open_pos:
@@ -117,14 +96,17 @@ def _build_positions_embed() -> discord.Embed | None:
         )
 
     color = 0x2ECC71 if total_pnl >= 0 else 0xE74C3C
-    sign = "+" if total_pnl >= 0 else "-"
+    pnl_sign = "+" if total_pnl >= 0 else "-"
+    title = "📊 Paper Positions"
+    if new_entries:
+        title += f"  ·  📌 Opened: {', '.join(new_entries)}"
     embed = discord.Embed(
-        title="📊 Paper Positions",
-        description="\n".join(lines),
+        title=title,
+        description="\n\n".join(lines),
         color=color,
     )
     embed.set_footer(
-        text=f"Total PnL: {sign}${abs(total_pnl):.2f}  |  {len(open_pos)} open position(s)"
+        text=f"Total PnL: {pnl_sign}${abs(total_pnl):.2f}  |  {len(open_pos)} open position(s)"
     )
     return embed
 
@@ -147,36 +129,29 @@ async def _run_scan(channel: discord.abc.Messageable) -> None:
         print(f"[scan error] {exc}", flush=True)
         return
 
-    if not ranked:
-        await status_msg.edit(content="🔎 Scan complete — no tokens passed filters.")
+    # Keep only tokens launched in the last hour
+    fresh = [r for r in ranked if r.token.age_minutes is not None and r.token.age_minutes <= 60]
+
+    if not fresh:
+        await status_msg.edit(content="🔎 No tokens under 1h found.")
         return
 
-    await status_msg.edit(content=f"✅ Found **{len(ranked)}** token(s) — full dashboard below")
+    # Edit the scanning indicator into the result — one message total
+    embed = _build_summary_embed(fresh)
+    await status_msg.edit(content="", embed=embed)
 
-    summary_embed = _build_summary_embed(ranked)
-    await channel.send(embed=summary_embed)
-
-    # Detailed embeds for top 3
-    for i, r in enumerate(ranked[:3]):
-        color = _score_color(r.score, ranked)
-        embed = _build_token_embed(r, rank=i + 1, total=len(ranked), color=color)
-        await channel.send(embed=embed)
-
-    # Auto-open positions for top 2 (if not already open)
+    # Auto-open positions for top 2 fresh tokens
     positions = pos_store.load()
     new_entries: list[str] = []
-    for r in ranked[:2]:
+    for r in fresh[:2]:
         if r.symbol not in positions or positions[r.symbol].get("status") != "open":
             positions[r.symbol] = pos_store.enter(r.token, POSITION_SIZE)
             new_entries.append(r.symbol)
     if new_entries:
         pos_store.save(positions)
-        await channel.send(
-            f"📌 Paper positions opened: **{', '.join(new_entries)}** (${POSITION_SIZE:.0f} each)"
-        )
 
-    # Positions PnL summary
-    pos_embed = await loop.run_in_executor(None, _build_positions_embed)
+    # Positions PnL — second and last message (new openings folded into the title)
+    pos_embed = await loop.run_in_executor(None, lambda: _build_positions_embed(new_entries or None))
     if pos_embed:
         await channel.send(embed=pos_embed)
 
