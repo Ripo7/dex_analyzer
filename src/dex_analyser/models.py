@@ -17,6 +17,12 @@ class Token:
     pair_created_at: datetime | None = None
 
     @property
+    def age_minutes(self) -> int | None:
+        if not self.pair_created_at:
+            return None
+        return int((datetime.now(tz=timezone.utc) - self.pair_created_at).total_seconds() / 60)
+
+    @property
     def age_days(self) -> int | None:
         if not self.pair_created_at:
             return None
