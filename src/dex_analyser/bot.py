@@ -88,8 +88,9 @@ def _build_summary_embed(ranked: list[RankedToken], use_goplus: bool = True) -> 
         chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
         status_emoji = _STATUS_EMOJI.get(r.status, "")
         spike = " ⚡" if r.volume_spike else ""
+        url = f"https://dexscreener.com/{tok.chain}/{tok.pair_address}"
         entry = (
-            f"**{tok.symbol}** · {tok.chain.upper()}  `{_fmt_age(tok)}`  {status_emoji}{spike}\n"
+            f"**[{tok.symbol}]({url})** · {tok.chain.upper()}  `{_fmt_age(tok)}`  {status_emoji}{spike}\n"
             f"Score `{r.score:.3f}` · {chg_str} · Vol {_fmt_usd(tok.volume_24h)} · Liq {_fmt_usd(tok.liquidity_usd)}"
         )
         safety_line = _fmt_safety(tok.safety)
