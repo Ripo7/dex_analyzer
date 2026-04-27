@@ -60,7 +60,7 @@ def test_build_summary_embed_contains_symbol():
     embed = _build_summary_embed(ranked)
     assert isinstance(embed, discord.Embed)
     assert "PIPPIN" in embed.description
-    assert "NEW" in embed.description
+    assert "🆕" in embed.description
     assert "0.900" in embed.description
 
 
@@ -72,25 +72,29 @@ def test_build_summary_embed_volume_spike_marker():
     assert "⚡" in embed.description
 
 
-def test_build_token_embed_fields():
+def test_build_summary_embed_title_shows_count():
     import discord
-    from dex_analyser.bot import _build_token_embed
-    r = _ranked("WIF", score=0.75, status="TRENDING")
-    embed = _build_token_embed(r, rank=1, total=5, color=0x2ECC71)
-    assert isinstance(embed, discord.Embed)
-    field_names = {f.name for f in embed.fields}
-    assert "Score" in field_names
-    assert "Price" in field_names
-    assert "Vol 24h" in field_names
-    assert "24h Change" in field_names
+    from dex_analyser.bot import _build_summary_embed
+    ranked = [_ranked("A"), _ranked("B"), _ranked("C")]
+    embed = _build_summary_embed(ranked)
+    assert "3" in embed.title
 
 
-def test_build_token_embed_new_status_emoji():
+def test_build_positions_embed_shows_new_entries():
     import discord
-    from dex_analyser.bot import _build_token_embed
-    r = _ranked("NEWCOIN", score=0.9, status="NEW")
-    embed = _build_token_embed(r, rank=1, total=3, color=0x2ECC71)
-    assert "🆕" in embed.title
+    from dex_analyser.bot import _build_positions_embed
+    positions = {
+        "PEPE": {
+            "status": "open", "chain": "ethereum",
+            "entry_price": 0.001, "entry_time": "2024-01-01T00:00:00+00:00",
+            "size_usd": 100, "pair_address": "0xpair",
+        }
+    }
+    with patch("dex_analyser.bot.pos_store.load", return_value=positions), \
+         patch("dex_analyser.bot.pos_store.current_prices", return_value={"PEPE": 0.0015}):
+        embed = _build_positions_embed(new_entries=["PEPE"])
+    assert "Opened" in embed.title
+    assert "PEPE" in embed.title
 
 
 def test_build_positions_embed_no_positions():
