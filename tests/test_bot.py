@@ -1,0 +1,116 @@
+"""Tests for bot embed builders — no live Discord connection needed."""
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from dex_analyser.models import RankedToken, Token
+
+
+def _token(symbol="PEPE", price=0.001, volume=1_000_000, price_change=10.0, liquidity=500_000):
+    return Token(
+        symbol=symbol, name=symbol, address="0xabc", pair_address="0xpair", chain="solana",
+        price_usd=price, volume_24h=volume, price_change_24h=price_change,
+        liquidity_usd=liquidity, market_cap=5_000_000,
+        pair_created_at=datetime.now(tz=timezone.utc) - timedelta(days=10),
+    )
+
+
+def _ranked(symbol="PEPE", score=0.8, status="TRENDING", volume_spike=False):
+    return RankedToken(token=_token(symbol), score=score, status=status, volume_spike=volume_spike)
+
+
+def test_fmt_usd_millions():
+    from dex_analyser.bot import _fmt_usd
+    assert _fmt_usd(2_500_000) == "$2.50M"
+
+
+def test_fmt_usd_thousands():
+    from dex_analyser.bot import _fmt_usd
+    assert _fmt_usd(75_000) == "$75.0K"
+
+
+def test_fmt_usd_small():
+    from dex_analyser.bot import _fmt_usd
+    assert _fmt_usd(500) == "$500"
+
+
+def test_score_color_top_tier():
+    from dex_analyser.bot import _score_color
+    ranked = [_ranked(score=1.0), _ranked(score=0.5), _ranked(score=0.2)]
+    assert _score_color(1.0, ranked) == 0x2ECC71
+
+
+def test_score_color_mid_tier():
+    from dex_analyser.bot import _score_color
+    ranked = [_ranked(score=1.0), _ranked(score=0.5), _ranked(score=0.2)]
+    assert _score_color(0.5, ranked) == 0xF1C40F
+
+
+def test_score_color_low_tier():
+    from dex_analyser.bot import _score_color
+    ranked = [_ranked(score=1.0), _ranked(score=0.5), _ranked(score=0.2)]
+    assert _score_color(0.2, ranked) == 0x3498DB
+
+
+def test_build_table_text_contains_symbol():
+    from dex_analyser.bot import _build_table_text
+    ranked = [_ranked("PIPPIN", score=0.9, status="NEW")]
+    text = _build_table_text(ranked)
+    assert "PIPPIN" in text
+    assert "NEW" in text
+    assert "0.900" in text
+
+
+def test_build_table_text_volume_spike_marker():
+    from dex_analyser.bot import _build_table_text
+    ranked = [_ranked("BONK", score=0.7, volume_spike=True)]
+    text = _build_table_text(ranked)
+    assert "⚡" in text
+
+
+def test_build_token_embed_fields():
+    import discord
+    from dex_analyser.bot import _build_token_embed
+    r = _ranked("WIF", score=0.75, status="TRENDING")
+    embed = _build_token_embed(r, rank=1, total=5, color=0x2ECC71)
+    assert isinstance(embed, discord.Embed)
+    field_names = {f.name for f in embed.fields}
+    assert "Score" in field_names
+    assert "Price" in field_names
+    assert "Vol 24h" in field_names
+    assert "24h Change" in field_names
+
+
+def test_build_token_embed_new_status_emoji():
+    import discord
+    from dex_analyser.bot import _build_token_embed
+    r = _ranked("NEWCOIN", score=0.9, status="NEW")
+    embed = _build_token_embed(r, rank=1, total=3, color=0x2ECC71)
+    assert "🆕" in embed.title
+
+
+def test_build_positions_embed_no_positions():
+    from dex_analyser.bot import _build_positions_embed
+    with patch("dex_analyser.bot.pos_store.load", return_value={}):
+        assert _build_positions_embed() is None
+
+
+def test_build_positions_embed_with_open_position():
+    import discord
+    from dex_analyser.bot import _build_positions_embed
+    positions = {
+        "PEPE": {
+            "status": "open",
+            "chain": "ethereum",
+            "entry_price": 0.001,
+            "entry_time": "2024-01-01T00:00:00+00:00",
+            "size_usd": 100,
+            "pair_address": "0xpair",
+        }
+    }
+    with patch("dex_analyser.bot.pos_store.load", return_value=positions), \
+         patch("dex_analyser.bot.pos_store.current_prices", return_value={"PEPE": 0.0015}):
+        embed = _build_positions_embed()
+    assert isinstance(embed, discord.Embed)
+    assert "PEPE" in embed.description

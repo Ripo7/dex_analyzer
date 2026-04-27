@@ -1,0 +1,1 @@
+worker: dex-analyser-bot

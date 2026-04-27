@@ -1,27 +1,34 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
 class Token:
     symbol: str
     name: str
-    address: str
+    address: str       # base token contract address
+    pair_address: str  # DEX pair/pool contract address (used for price refresh)
     chain: str
     price_usd: float
     volume_24h: float
     price_change_24h: float
     liquidity_usd: float
+    market_cap: float = 0.0
     pair_created_at: datetime | None = None
+
+    @property
+    def age_days(self) -> int | None:
+        if not self.pair_created_at:
+            return None
+        return (datetime.now(tz=timezone.utc) - self.pair_created_at).days
 
 
 @dataclass
 class RankedToken:
     token: Token
-    tweet_count: int
     score: float
-    status: str  # "NEW" | "RESURGENT" | "TRENDING"
-    previous_tweet_count: int = 0
+    status: str        # "NEW" | "RESURGENT" | "TRENDING"
+    volume_spike: bool = False
 
     @property
     def symbol(self) -> str:

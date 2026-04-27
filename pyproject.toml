@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dex-analyser"
-version = "0.1.0"
-description = "Analyse Twitter/X trends and cross-reference with DexScreener token data"
+version = "0.2.0"
+description = "Rank trending on-chain tokens via DexScreener discovery metrics"
 requires-python = ">=3.10"
 dependencies = [
-    "ntscraper>=0.3.6",
     "requests>=2.31",
     "rich>=13.0",
+    "discord.py>=2.3",
 ]
 
 [project.optional-dependencies]
@@ -18,6 +18,7 @@ dev = ["pytest>=8.0", "pytest-mock>=3.12"]
 
 [project.scripts]
 dex-analyser = "dex_analyser.cli:main"
+dex-analyser-bot = "dex_analyser.bot:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
