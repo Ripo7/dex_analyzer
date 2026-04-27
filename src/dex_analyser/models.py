@@ -3,6 +3,17 @@ from datetime import datetime, timezone
 
 
 @dataclass
+class TokenSafety:
+    is_honeypot: bool = False
+    buy_tax: float = 0.0
+    sell_tax: float = 0.0
+    is_mintable: bool = False
+    owner_renounced: bool = False
+    lp_locked_pct: float = 0.0   # 0-100
+    is_blacklist: bool = False    # freeze/blacklist function present
+
+
+@dataclass
 class Token:
     symbol: str
     name: str
@@ -15,6 +26,7 @@ class Token:
     liquidity_usd: float
     market_cap: float = 0.0
     pair_created_at: datetime | None = None
+    safety: TokenSafety | None = None
 
     @property
     def age_minutes(self) -> int | None:
