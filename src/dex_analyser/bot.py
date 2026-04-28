@@ -9,7 +9,7 @@ from .analyser import analyse, discover_and_rank
 from .dexscreener import discover_tokens, discover_bsc_tokens
 from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
-from .thegraph import fetch_pair_swaps, discover_trending_bsc_pools
+from .thegraph import fetch_pair_swaps, discover_trending_bsc_pools, fetch_wallet_portfolio_usd
 from .whale import find_whales_from_swaps
 from . import positions as pos_store
 
@@ -120,22 +120,48 @@ def _fmt_ago(minutes: int) -> str:
     return f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago"
 
 
+def _whale_pattern(w: WhaleEntry) -> str:
+    span = w.first_buy_ago_minutes - w.last_buy_ago_minutes
+    if w.tx_count == 1:
+        return "⚡ Single large buy"
+    if span < 30:
+        return "🚀 Aggressive (burst)"
+    return "🔄 Accumulating"
+
+
+def _fmt_portfolio(usd: float) -> str:
+    if usd <= 0:
+        return ""
+    if usd >= 1_000_000:
+        return f"💼 Portfolio ~${usd/1_000_000:.1f}M"
+    if usd >= 1_000:
+        return f"💼 Portfolio ~${usd/1_000:.0f}K"
+    return f"💼 Portfolio ~${usd:.0f}"
+
+
 def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: int, swap_count: int = 0) -> discord.Embed:
     symbol = pool["symbol"]
     addr = pool["pool_address"]
     vol = pool["volume_24h"]
-    url = f"https://www.geckoterminal.com/bsc/pools/{addr}"
+    pool_url = f"https://www.geckoterminal.com/bsc/pools/{addr}"
     lines: list[str] = []
     for i, w in enumerate(whales, 1):
-        lines.append(
-            f"**#{i}** {_fmt_wallet(w.wallet)}  "
-            f"{_fmt_usd(w.total_bought_usd)} · "
-            f"{w.tx_count} txn{'s' if w.tx_count > 1 else ''} · "
-            f"{_fmt_ago(w.last_buy_ago_minutes)}"
+        avg = w.total_bought_usd / w.tx_count
+        debank = f"https://debank.com/profile/{w.wallet}"
+        bscscan = f"https://bscscan.com/address/{w.wallet}"
+        portfolio = _fmt_portfolio(w.portfolio_usd)
+        line = (
+            f"**#{i}** [`{w.wallet[:6]}…{w.wallet[-4:]}`]({bscscan})  "
+            f"{_fmt_usd(w.total_bought_usd)} · {w.tx_count} buy{'s' if w.tx_count > 1 else ''} · avg {_fmt_usd(avg)}\n"
+            f"{_whale_pattern(w)} · entered {_fmt_ago(w.first_buy_ago_minutes)} · last {_fmt_ago(w.last_buy_ago_minutes)}\n"
+            f"[DeBank]({debank})"
         )
-    description = "\n".join(lines) if lines else "_No whale buys found_"
+        if portfolio:
+            line += f"  ·  {portfolio}"
+        lines.append(line)
+    description = "\n\n".join(lines) if lines else "_No whale buys found_"
     embed = discord.Embed(
-        title=f"🐋 [{symbol}]({url}) · BSC",
+        title=f"🐋 [{symbol}]({pool_url}) · BSC",
         description=description,
         color=0x9B59B6,
     )
@@ -297,6 +323,14 @@ async def whale_cmd(ctx: commands.Context) -> None:
     await status_msg.delete()
     for i, (pool, swaps) in enumerate(zip(pools, swap_results), 1):
         whales = find_whales_from_swaps(swaps)
+        # Enrich top 5 whales with DeBank portfolio value in parallel
+        if whales:
+            portfolio_values = await asyncio.gather(
+                *[loop.run_in_executor(None, lambda w=w: fetch_wallet_portfolio_usd(w.wallet))
+                  for w in whales[:5]]
+            )
+            for w, pv in zip(whales[:5], portfolio_values):
+                w.portfolio_usd = pv
         embed = _build_whale_embed(pool, whales, rank=i, total=len(pools), swap_count=len(swaps))
         await ctx.channel.send(embed=embed)
 
