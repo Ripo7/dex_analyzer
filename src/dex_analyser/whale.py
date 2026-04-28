@@ -39,11 +39,13 @@ def find_whales_from_swaps(swaps: list[dict], top_n: int = 10, min_buy_usd: floa
             continue
 
         flags: list[str] = []
-        if wallet in sellers:
-            flags.append("also_sold")
-        # Rapid-fire: any two consecutive buys within 5 minutes
+        # Bot pattern: 3+ consecutive buys all within 2 minutes of each other
         sorted_ts = sorted(b["timestamps"])
-        if any(sorted_ts[i+1] - sorted_ts[i] < 300 for i in range(len(sorted_ts) - 1)):
+        rapid_count = sum(
+            1 for i in range(len(sorted_ts) - 1)
+            if sorted_ts[i + 1] - sorted_ts[i] < 120
+        )
+        if rapid_count >= 3:
             flags.append("bot_rapid")
 
         whales.append(WhaleEntry(
