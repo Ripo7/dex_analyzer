@@ -6,10 +6,8 @@ import discord
 from discord.ext import commands, tasks
 
 from .analyser import discover_and_rank
-from .dexscreener import discover_tokens
-from .models import RankedToken, TokenSafety, WhaleSignal
+from .models import RankedToken, TokenSafety
 from .goplus import fetch_safety
-from .whale import find_whale_tokens
 from . import positions as pos_store
 
 DISCORD_CHANNEL_ID: int = 0  # set by run()
@@ -108,27 +106,6 @@ def _build_summary_embed(ranked: list[RankedToken], use_goplus: bool = True) -> 
         color=top_color,
     )
     embed.set_footer(text=f"Scanned at {now}  |  {safety_label}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
-    return embed
-
-
-def _build_whale_embed(signals: list[WhaleSignal]) -> discord.Embed:
-    lines: list[str] = []
-    for s in signals:
-        tok = s.token
-        url = f"https://dexscreener.com/{tok.chain}/{tok.pair_address}"
-        buy_pct = s.buy_sell_ratio * 100
-        spike_str = f"{s.vol_spike:.1f}×" if s.vol_spike < 100 else ">100×"
-        lines.append(
-            f"**[{tok.symbol}]({url})** · {tok.chain.upper()}  `{_fmt_age(tok)}`\n"
-            f"Avg buy {_fmt_usd(s.avg_buy_usd)} · {buy_pct:.0f}% buys · Spike {spike_str} · Vol {_fmt_usd(tok.volume_1h)}"
-        )
-    now = datetime.now(tz=timezone.utc).strftime("%H:%M UTC")
-    embed = discord.Embed(
-        title=f"🐋 Whale Activity  ({len(signals)} signals)",
-        description="\n\n".join(lines),
-        color=0x9B59B6,
-    )
-    embed.set_footer(text=f"1h trade data  |  {now}")
     return embed
 
 
@@ -260,29 +237,6 @@ async def scan_cmd(ctx: commands.Context) -> None:
 async def scan_raw_cmd(ctx: commands.Context) -> None:
     """Scan without GoPlus — faster, shows all tokens including unverified ones."""
     await _run_scan(ctx.channel, use_goplus=False)
-
-
-@bot.command(name="whale")
-async def whale_cmd(ctx: commands.Context) -> None:
-    """Hunt for whale activity — large average buys and volume spikes across all tokens."""
-    status_msg = await ctx.channel.send("🐋 Hunting whales…")
-    loop = asyncio.get_event_loop()
-
-    try:
-        tokens = await loop.run_in_executor(None, discover_tokens)
-    except Exception as exc:
-        await status_msg.edit(content=f"❌ Whale scan failed: {exc}")
-        print(f"[whale error] {exc}", flush=True)
-        return
-
-    signals = find_whale_tokens(tokens)
-
-    if not signals:
-        await status_msg.edit(content="🐋 No whale activity detected.")
-        return
-
-    embed = _build_whale_embed(signals)
-    await status_msg.edit(content="", embed=embed)
 
 
 def run() -> None:
