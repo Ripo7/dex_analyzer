@@ -48,8 +48,10 @@ class WhaleEntry:
     tx_count: int
     last_buy_ago_minutes: int
     first_buy_ago_minutes: int = 0
-    portfolio_usd: float = 0.0   # 0 = unknown
-    flags: list = field(default_factory=list)  # suspicious pattern labels
+    portfolio_usd: float = 0.0
+    flags: list = field(default_factory=list)
+    bsc_bag: list = field(default_factory=list)   # [{"symbol": "CAKE", "usd_value": 8000}]
+    token_holding_usd: float = 0.0               # current value of the pool's token in their wallet
 
 
 @dataclass
