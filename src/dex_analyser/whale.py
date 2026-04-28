@@ -3,11 +3,11 @@ import time
 from .bscscan import Transfer
 from .models import Token, WhaleEntry
 
-_MIN_BUY_USD = 5_000.0
+_MIN_BUY_USD = 1_000.0
 _WHALE_HOURS = 6
 
 
-def find_whales(token: Token, transfers: list[Transfer], top_n: int = 10) -> list[WhaleEntry]:
+def find_whales(token: Token, transfers: list[Transfer], top_n: int = 10, min_buy_usd: float = _MIN_BUY_USD) -> list[WhaleEntry]:
     pair_addr = token.pair_address.lower()
     now = int(time.time())
 
@@ -26,7 +26,7 @@ def find_whales(token: Token, transfers: list[Transfer], top_n: int = 10) -> lis
 
     whales: list[WhaleEntry] = []
     for wallet, b in buckets.items():
-        if b["total_usd"] < _MIN_BUY_USD:
+        if b["total_usd"] < min_buy_usd:
             continue
         whales.append(WhaleEntry(
             wallet=wallet,
