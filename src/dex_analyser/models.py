@@ -47,6 +47,8 @@ class WhaleEntry:
     total_bought_usd: float
     tx_count: int
     last_buy_ago_minutes: int
+    first_buy_ago_minutes: int = 0
+    portfolio_usd: float = 0.0   # 0 = unknown
 
 
 @dataclass

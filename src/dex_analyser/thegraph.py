@@ -8,6 +8,22 @@ _HEADERS = {"Accept": "application/json;version=20230302"}
 _TIMEOUT = 15
 
 _SKIP_SYMBOLS = {"WBNB", "BNB", "USDT", "BUSD", "USDC", "DAI", "WETH", "ETH", "BTCB"}
+_DEBANK = "https://openapi.debank.com/v1"
+
+
+def fetch_wallet_portfolio_usd(address: str) -> float:
+    """Return total portfolio value in USD from DeBank. Returns 0.0 on failure."""
+    try:
+        resp = requests.get(
+            f"{_DEBANK}/user/total_balance",
+            params={"id": address},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            return float(resp.json().get("usd_value") or 0)
+    except Exception:
+        pass
+    return 0.0
 
 
 def discover_trending_bsc_pools(top_n: int = 5) -> list[dict]:
