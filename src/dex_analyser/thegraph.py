@@ -85,7 +85,8 @@ def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> lis
     result: list[dict] = []
     for trade in trades:
         attrs = trade.get("attributes", {})
-        if attrs.get("kind") != "buy":
+        kind = attrs.get("kind")
+        if kind not in ("buy", "sell"):
             continue
         ts_str = attrs.get("block_timestamp", "")
         try:
@@ -98,6 +99,7 @@ def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> lis
             "to": attrs.get("tx_from_address", "").lower(),
             "amountUSD": attrs.get("volume_in_usd", "0"),
             "timestamp": ts,
+            "kind": kind,
         })
 
     return result

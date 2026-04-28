@@ -150,6 +150,15 @@ def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: i
         debank = f"https://debank.com/profile/{w.wallet}"
         bscscan = f"https://bscscan.com/address/{w.wallet}"
         portfolio = _fmt_portfolio(w.portfolio_usd)
+        flag_parts = []
+        if "also_sold" in w.flags:
+            flag_parts.append("⚠️ Also sold")
+        if "bot_rapid" in w.flags:
+            flag_parts.append("🤖 Rapid-fire")
+        if "empty_wallet" in w.flags:
+            flag_parts.append("👻 Empty wallet")
+        flag_str = "  ·  ".join(flag_parts)
+
         line = (
             f"**#{i}** [`{w.wallet[:6]}…{w.wallet[-4:]}`]({bscscan})  "
             f"{_fmt_usd(w.total_bought_usd)} · {w.tx_count} buy{'s' if w.tx_count > 1 else ''} · avg {_fmt_usd(avg)}\n"
@@ -158,6 +167,8 @@ def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: i
         )
         if portfolio:
             line += f"  ·  {portfolio}"
+        if flag_str:
+            line += f"\n{flag_str}"
         lines.append(line)
     description = "\n\n".join(lines) if lines else "_No whale buys found_"
     embed = discord.Embed(
@@ -331,6 +342,8 @@ async def whale_cmd(ctx: commands.Context) -> None:
             )
             for w, pv in zip(whales[:5], portfolio_values):
                 w.portfolio_usd = pv
+                if pv > 0 and pv < 1_000:
+                    w.flags.append("empty_wallet")
         embed = _build_whale_embed(pool, whales, rank=i, total=len(pools), swap_count=len(swaps))
         await ctx.channel.send(embed=embed)
 

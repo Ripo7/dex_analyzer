@@ -49,6 +49,7 @@ class WhaleEntry:
     last_buy_ago_minutes: int
     first_buy_ago_minutes: int = 0
     portfolio_usd: float = 0.0   # 0 = unknown
+    flags: list = field(default_factory=list)  # suspicious pattern labels
 
 
 @dataclass
