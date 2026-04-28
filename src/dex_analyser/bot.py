@@ -9,7 +9,7 @@ from .analyser import analyse, discover_and_rank
 from .dexscreener import discover_tokens, discover_bsc_tokens
 from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
-from .thegraph import fetch_pair_swaps, discover_trending_bsc_pools, fetch_wallet_portfolio_usd
+from .thegraph import fetch_pair_swaps, discover_trending_bsc_pools, fetch_wallet_analysis
 from .whale import find_whales_from_swaps
 from . import positions as pos_store
 
@@ -159,14 +159,28 @@ def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: i
             flag_parts.append("👻 Empty wallet")
         flag_str = "  ·  ".join(flag_parts)
 
+        # Unrealized PnL on this token
+        pnl_str = ""
+        if w.token_holding_usd > 0 and w.total_bought_usd > 0:
+            pnl_pct = (w.token_holding_usd - w.total_bought_usd) / w.total_bought_usd * 100
+            pnl_sign = "+" if pnl_pct >= 0 else ""
+            pnl_str = f"  ·  PnL `{pnl_sign}{pnl_pct:.1f}%` ({_fmt_usd(w.token_holding_usd)} now)"
+
+        # Top bag (exclude the current token to avoid redundancy)
+        symbol = pool["symbol"].upper()
+        bag_items = [t for t in w.bsc_bag if t["symbol"] != symbol][:4]
+        bag_str = "  ".join(f"{t['symbol']} {_fmt_usd(t['usd_value'])}" for t in bag_items)
+
         line = (
             f"**#{i}** [`{w.wallet[:6]}…{w.wallet[-4:]}`]({bscscan})  "
-            f"{_fmt_usd(w.total_bought_usd)} · {w.tx_count} buy{'s' if w.tx_count > 1 else ''} · avg {_fmt_usd(avg)}\n"
+            f"{_fmt_usd(w.total_bought_usd)} · {w.tx_count} buy{'s' if w.tx_count > 1 else ''} · avg {_fmt_usd(avg)}{pnl_str}\n"
             f"{_whale_pattern(w)} · entered {_fmt_ago(w.first_buy_ago_minutes)} · last {_fmt_ago(w.last_buy_ago_minutes)}\n"
             f"[DeBank]({debank})"
         )
         if portfolio:
             line += f"  ·  {portfolio}"
+        if bag_str:
+            line += f"\n🎒 {bag_str}"
         if flag_str:
             line += f"\n{flag_str}"
         lines.append(line)
@@ -334,16 +348,27 @@ async def whale_cmd(ctx: commands.Context) -> None:
     await status_msg.delete()
     for i, (pool, swaps) in enumerate(zip(pools, swap_results), 1):
         whales = find_whales_from_swaps(swaps)
-        # Enrich top 5 whales with DeBank portfolio value in parallel
+        # Enrich all whales with DeBank wallet analysis in parallel
         if whales:
-            portfolio_values = await asyncio.gather(
-                *[loop.run_in_executor(None, lambda w=w: fetch_wallet_portfolio_usd(w.wallet))
-                  for w in whales[:5]]
+            analyses = await asyncio.gather(
+                *[loop.run_in_executor(None, lambda w=w: fetch_wallet_analysis(w.wallet))
+                  for w in whales]
             )
-            for w, pv in zip(whales[:5], portfolio_values):
-                w.portfolio_usd = pv
-                if pv > 0 and pv < 1_000:
+            token_symbol = pool["symbol"].upper()
+            for w, analysis in zip(whales, analyses):
+                w.portfolio_usd = analysis["total_usd"]
+                if w.portfolio_usd > 0 and w.portfolio_usd < 1_000:
                     w.flags.append("empty_wallet")
+                w.bsc_bag = [
+                    {"symbol": t.get("symbol", "?").upper(), "usd_value": float(t.get("usd_value") or 0)}
+                    for t in analysis["tokens"]
+                    if float(t.get("usd_value") or 0) > 10
+                ]
+                # Find their current holding of the pool's token for PnL
+                for t in analysis["tokens"]:
+                    if t.get("symbol", "").upper() == token_symbol:
+                        w.token_holding_usd = float(t.get("usd_value") or 0)
+                        break
         # Keep only clean wallets — no suspicious flags
         whales = [w for w in whales if not w.flags]
         embed = _build_whale_embed(pool, whales, rank=i, total=len(pools), swap_count=len(swaps))

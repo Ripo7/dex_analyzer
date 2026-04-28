@@ -11,19 +11,42 @@ _SKIP_SYMBOLS = {"WBNB", "BNB", "USDT", "BUSD", "USDC", "DAI", "WETH", "ETH", "B
 _DEBANK = "https://openapi.debank.com/v1"
 
 
-def fetch_wallet_portfolio_usd(address: str) -> float:
-    """Return total portfolio value in USD from DeBank. Returns 0.0 on failure."""
+def fetch_wallet_analysis(address: str) -> dict:
+    """
+    Returns DeBank wallet data: total_usd, top BSC token holdings.
+    Falls back to empty dict on any failure.
+    """
+    result = {"total_usd": 0.0, "tokens": []}
     try:
-        resp = requests.get(
+        bal_resp = requests.get(
             f"{_DEBANK}/user/total_balance",
             params={"id": address},
             timeout=8,
         )
-        if resp.status_code == 200:
-            return float(resp.json().get("usd_value") or 0)
+        if bal_resp.status_code == 200:
+            result["total_usd"] = float(bal_resp.json().get("usd_value") or 0)
     except Exception:
         pass
-    return 0.0
+
+    try:
+        tok_resp = requests.get(
+            f"{_DEBANK}/user/token_list",
+            params={"id": address, "chain_id": "bsc", "is_all": "false"},
+            timeout=8,
+        )
+        if tok_resp.status_code == 200:
+            tokens = tok_resp.json()
+            if isinstance(tokens, list):
+                tokens.sort(key=lambda t: float(t.get("usd_value") or 0), reverse=True)
+                result["tokens"] = tokens[:8]
+    except Exception:
+        pass
+
+    return result
+
+
+def fetch_wallet_portfolio_usd(address: str) -> float:
+    return fetch_wallet_analysis(address)["total_usd"]
 
 
 def discover_trending_bsc_pools(top_n: int = 5) -> list[dict]:
