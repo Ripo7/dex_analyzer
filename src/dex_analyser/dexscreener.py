@@ -20,6 +20,7 @@ def _pair_to_token(pair: dict) -> Token | None:
         else None
     )
     market_cap = float(pair.get("marketCap") or pair.get("fdv") or 0)
+    txns_1h = pair.get("txns", {}).get("h1", {})
     return Token(
         symbol=base.get("symbol", "").upper(),
         name=base.get("name", ""),
@@ -32,6 +33,9 @@ def _pair_to_token(pair: dict) -> Token | None:
         liquidity_usd=float(pair.get("liquidity", {}).get("usd") or 0),
         market_cap=market_cap,
         pair_created_at=pair_created_at,
+        volume_1h=float(pair.get("volume", {}).get("h1") or 0),
+        buys_1h=int(txns_1h.get("buys") or 0),
+        sells_1h=int(txns_1h.get("sells") or 0),
     )
 
 

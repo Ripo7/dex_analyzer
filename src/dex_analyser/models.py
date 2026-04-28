@@ -27,6 +27,9 @@ class Token:
     market_cap: float = 0.0
     pair_created_at: datetime | None = None
     safety: TokenSafety | None = None
+    volume_1h: float = 0.0
+    buys_1h: int = 0
+    sells_1h: int = 0
 
     @property
     def age_minutes(self) -> int | None:
@@ -39,6 +42,19 @@ class Token:
         if not self.pair_created_at:
             return None
         return (datetime.now(tz=timezone.utc) - self.pair_created_at).days
+
+
+@dataclass
+class WhaleSignal:
+    token: Token
+    avg_buy_usd: float      # average buy size over the last hour
+    buy_sell_ratio: float   # 0-1, closer to 1 = more buys than sells
+    vol_spike: float        # h1 vol vs hourly average from h24
+    whale_score: float
+
+    @property
+    def symbol(self) -> str:
+        return self.token.symbol
 
 
 @dataclass
