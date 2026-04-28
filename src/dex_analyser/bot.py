@@ -259,6 +259,7 @@ async def on_ready() -> None:
     print(f"Target channel: {channel} (ID={DISCORD_CHANNEL_ID})", flush=True)
     bsc_key = os.environ.get("BSCSCAN_API_KEY", "")
     print(f"BSCSCAN_API_KEY: {'SET (' + str(len(bsc_key)) + ' chars)' if bsc_key else 'NOT SET'}", flush=True)
+    print(f"All env var names: {sorted(os.environ.keys())}", flush=True)
     if not _auto_scan.is_running():
         _auto_scan.start()
 
