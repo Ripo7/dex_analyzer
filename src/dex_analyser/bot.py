@@ -9,8 +9,8 @@ from .analyser import analyse, discover_and_rank
 from .dexscreener import discover_tokens, discover_bsc_tokens
 from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
-from .bscscan import fetch_token_transfers
-from .whale import find_whales
+from .thegraph import fetch_pair_swaps
+from .whale import find_whales_from_swaps
 from . import positions as pos_store
 
 DISCORD_CHANNEL_ID: int = 0  # set by run()
@@ -278,11 +278,7 @@ async def scan_raw_cmd(ctx: commands.Context) -> None:
 
 @bot.command(name="whale")
 async def whale_cmd(ctx: commands.Context) -> None:
-    """Hunt for whales on the top 5 BSC tokens (min $5K buy, last 6h)."""
-    if not os.environ.get("BSCSCAN_API_KEY"):
-        await ctx.channel.send("❌ `BSCSCAN_API_KEY` env var not set.")
-        return
-
+    """Hunt for whales on the top 5 BSC tokens via PancakeSwap swaps (min $1K, last 6h)."""
     status_msg = await ctx.channel.send("🐋 Scanning BSC tokens…")
     loop = asyncio.get_event_loop()
 
@@ -296,7 +292,7 @@ async def whale_cmd(ctx: commands.Context) -> None:
         await status_msg.edit(content="🐋 No BSC tokens found on DexScreener.")
         return
 
-    # Rank by volume — skip strict score/scam filters, GoPlus handles safety
+    # Pick top 5 by volume; GoPlus handles safety
     ranked = analyse(bsc_tokens, top_n=5, min_liquidity=5_000, min_volume=5_000)
     if not ranked:
         ranked_tokens = sorted(bsc_tokens, key=lambda t: t.volume_24h, reverse=True)[:5]
@@ -316,18 +312,18 @@ async def whale_cmd(ctx: commands.Context) -> None:
         await status_msg.edit(content="🐋 All tokens flagged as honeypots.")
         return
 
-    await status_msg.edit(content=f"🐋 Fetching whale data for {len(ranked)} tokens…")
+    await status_msg.edit(content=f"🐋 Fetching swap data for {len(ranked)} tokens…")
 
-    # Fetch on-chain transfers for all tokens in parallel
-    transfer_results = await asyncio.gather(
-        *[loop.run_in_executor(None, lambda r=r: fetch_token_transfers(r.token.address))
+    # Fetch PancakeSwap swaps for all pair addresses in parallel
+    swap_results = await asyncio.gather(
+        *[loop.run_in_executor(None, lambda r=r: fetch_pair_swaps(r.token.pair_address))
           for r in ranked]
     )
 
     await status_msg.delete()
-    for i, (r, transfers) in enumerate(zip(ranked, transfer_results), 1):
-        whales = find_whales(r.token, transfers)
-        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked), transfer_count=len(transfers))
+    for i, (r, swaps) in enumerate(zip(ranked, swap_results), 1):
+        whales = find_whales_from_swaps(swaps)
+        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked), transfer_count=len(swaps))
         await ctx.channel.send(embed=embed)
 
 
