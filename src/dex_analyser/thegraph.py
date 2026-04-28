@@ -8,42 +8,46 @@ _HEADERS = {"Accept": "application/json;version=20230302"}
 _TIMEOUT = 15
 
 _SKIP_SYMBOLS = {"WBNB", "BNB", "USDT", "BUSD", "USDC", "DAI", "WETH", "ETH", "BTCB"}
-_DEBANK = "https://openapi.debank.com/v1"
+_ANKR = "https://rpc.ankr.com/multichain"
 
 
 def fetch_wallet_analysis(address: str) -> dict:
-    """
-    Returns DeBank wallet data: total_usd, top BSC token holdings.
-    Falls back to empty dict on any failure.
-    """
+    """BSC wallet holdings via Ankr free API. Returns {total_usd, tokens}."""
     result = {"total_usd": 0.0, "tokens": []}
     try:
-        bal_resp = requests.get(
-            f"{_DEBANK}/user/total_balance",
-            params={"id": address},
-            timeout=8,
+        resp = requests.post(
+            _ANKR,
+            json={
+                "jsonrpc": "2.0",
+                "method": "ankr_getAccountBalance",
+                "id": 1,
+                "params": {
+                    "blockchain": "bsc",
+                    "walletAddress": address,
+                    "onlyWhitelisted": False,
+                    "pageSize": 10,
+                },
+            },
+            timeout=10,
         )
-        print(f"[debank] balance status={bal_resp.status_code} body={bal_resp.text[:120]}", flush=True)
-        if bal_resp.status_code == 200:
-            result["total_usd"] = float(bal_resp.json().get("usd_value") or 0)
+        print(f"[ankr] status={resp.status_code} wallet={address[:10]}…", flush=True)
+        if resp.status_code == 200:
+            data = resp.json().get("result", {})
+            result["total_usd"] = float(data.get("totalBalanceUsd") or 0)
+            assets = sorted(
+                data.get("assets", []),
+                key=lambda a: float(a.get("balanceUsd") or 0),
+                reverse=True,
+            )
+            result["tokens"] = [
+                {"symbol": a.get("tokenSymbol", "?"), "usd_value": float(a.get("balanceUsd") or 0)}
+                for a in assets[:8]
+                if float(a.get("balanceUsd") or 0) > 10
+            ]
+        else:
+            print(f"[ankr] error body: {resp.text[:200]}", flush=True)
     except Exception as e:
-        print(f"[debank] balance error: {e}", flush=True)
-
-    try:
-        tok_resp = requests.get(
-            f"{_DEBANK}/user/token_list",
-            params={"id": address, "chain_id": "bsc", "is_all": "false"},
-            timeout=8,
-        )
-        print(f"[debank] token_list status={tok_resp.status_code} body={tok_resp.text[:120]}", flush=True)
-        if tok_resp.status_code == 200:
-            tokens = tok_resp.json()
-            if isinstance(tokens, list):
-                tokens.sort(key=lambda t: float(t.get("usd_value") or 0), reverse=True)
-                result["tokens"] = tokens[:8]
-    except Exception as e:
-        print(f"[debank] token_list error: {e}", flush=True)
-
+        print(f"[ankr] request error: {e}", flush=True)
     return result
 
 
