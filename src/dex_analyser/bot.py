@@ -325,6 +325,8 @@ async def whale_cmd(ctx: commands.Context) -> None:
 
 
 def run() -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
     token = os.environ.get("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_TOKEN environment variable is not set")
