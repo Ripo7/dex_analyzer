@@ -344,6 +344,8 @@ async def whale_cmd(ctx: commands.Context) -> None:
                 w.portfolio_usd = pv
                 if pv > 0 and pv < 1_000:
                     w.flags.append("empty_wallet")
+        # Keep only clean wallets — no suspicious flags
+        whales = [w for w in whales if not w.flags]
         embed = _build_whale_embed(pool, whales, rank=i, total=len(pools), swap_count=len(swaps))
         await ctx.channel.send(embed=embed)
 
