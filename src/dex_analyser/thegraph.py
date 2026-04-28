@@ -23,10 +23,11 @@ def fetch_wallet_analysis(address: str) -> dict:
             params={"id": address},
             timeout=8,
         )
+        print(f"[debank] balance status={bal_resp.status_code} body={bal_resp.text[:120]}", flush=True)
         if bal_resp.status_code == 200:
             result["total_usd"] = float(bal_resp.json().get("usd_value") or 0)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[debank] balance error: {e}", flush=True)
 
     try:
         tok_resp = requests.get(
@@ -34,13 +35,14 @@ def fetch_wallet_analysis(address: str) -> dict:
             params={"id": address, "chain_id": "bsc", "is_all": "false"},
             timeout=8,
         )
+        print(f"[debank] token_list status={tok_resp.status_code} body={tok_resp.text[:120]}", flush=True)
         if tok_resp.status_code == 200:
             tokens = tok_resp.json()
             if isinstance(tokens, list):
                 tokens.sort(key=lambda t: float(t.get("usd_value") or 0), reverse=True)
                 result["tokens"] = tokens[:8]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[debank] token_list error: {e}", flush=True)
 
     return result
 
