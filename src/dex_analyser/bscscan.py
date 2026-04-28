@@ -3,7 +3,8 @@ import time
 
 import requests
 
-_BASE = "https://api.bscscan.com/api"
+_BASE = "https://api.etherscan.io/v2/api"
+_CHAIN_ID = 56  # BSC
 _TIMEOUT = 10
 
 
@@ -26,6 +27,7 @@ def fetch_token_transfers(contract_addr: str, hours: int = 6) -> list[Transfer]:
         resp = requests.get(
             _BASE,
             params={
+                "chainid": _CHAIN_ID,
                 "module": "account",
                 "action": "tokentx",
                 "contractaddress": contract_addr,
