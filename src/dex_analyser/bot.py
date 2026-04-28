@@ -139,7 +139,7 @@ def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int, t
         description=description,
         color=0x9B59B6,
     )
-    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $1K buy  ·  Last 6h  ·  {transfer_count} transfers scanned")
+    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $500 buy  ·  Last 6h  ·  {transfer_count} transfers scanned")
     return embed
 
 
@@ -292,8 +292,8 @@ async def whale_cmd(ctx: commands.Context) -> None:
         await status_msg.edit(content="🐋 No BSC tokens found on DexScreener.")
         return
 
-    # Pick top 5 by volume; GoPlus handles safety
-    ranked = analyse(bsc_tokens, top_n=5, min_liquidity=5_000, min_volume=5_000)
+    # Pick top 5 by volume — require real activity ($50K+ vol) so there's whale-level trading
+    ranked = analyse(bsc_tokens, top_n=5, min_liquidity=25_000, min_volume=50_000)
     if not ranked:
         ranked_tokens = sorted(bsc_tokens, key=lambda t: t.volume_24h, reverse=True)[:5]
         from .models import RankedToken
