@@ -1,54 +1,51 @@
 import time
+from datetime import datetime, timezone
 
 import requests
 
-_ENDPOINT = "https://api.thegraph.com/subgraphs/name/pancakeswap/exchange-v2"
+_BASE = "https://api.geckoterminal.com/api/v2"
 _TIMEOUT = 15
-
-_QUERY = """
-query($pair: String!, $cutoff: Int!, $first: Int!) {
-  swaps(
-    first: $first
-    orderBy: timestamp
-    orderDirection: desc
-    where: { pair: $pair, timestamp_gte: $cutoff }
-  ) {
-    to
-    amountUSD
-    timestamp
-  }
-}
-"""
 
 
 def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> list[dict]:
-    """Return swap events for a PancakeSwap v2 pair in the last `hours` hours."""
+    """Return buy trades for a BSC pool from GeckoTerminal (free, no key needed)."""
     cutoff = int(time.time()) - hours * 3600
-    print(f"[thegraph] querying pair={pair_address.lower()} cutoff={cutoff}", flush=True)
+    url = f"{_BASE}/networks/bsc/pools/{pair_address}/trades"
+    print(f"[gecko] querying pool={pair_address[:10]}… cutoff={cutoff}", flush=True)
+
     try:
-        resp = requests.post(
-            _ENDPOINT,
-            json={
-                "query": _QUERY,
-                "variables": {
-                    "pair": pair_address.lower(),
-                    "cutoff": cutoff,
-                    "first": limit,
-                },
-            },
+        resp = requests.get(
+            url,
+            params={"trade_volume_in_usd_greater_than": 0},
+            headers={"Accept": "application/json;version=20230302"},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException as e:
-        print(f"[thegraph] request error: {e}", flush=True)
+        print(f"[gecko] request error: {e}", flush=True)
         return []
 
-    errors = data.get("errors")
-    if errors:
-        print(f"[thegraph] errors: {errors}", flush=True)
-        return []
+    trades = data.get("data", [])
+    print(f"[gecko] got {len(trades)} trades for {pair_address[:10]}…", flush=True)
 
-    swaps = data.get("data", {}).get("swaps", [])
-    print(f"[thegraph] got {len(swaps)} swaps for {pair_address[:10]}…", flush=True)
-    return swaps
+    # Normalise to the dict shape whale.py expects: to, amountUSD, timestamp
+    result: list[dict] = []
+    for trade in trades:
+        attrs = trade.get("attributes", {})
+        if attrs.get("kind") != "buy":
+            continue
+        ts_str = attrs.get("block_timestamp", "")
+        try:
+            ts = int(datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp())
+        except (ValueError, AttributeError):
+            continue
+        if ts < cutoff:
+            continue
+        result.append({
+            "to": attrs.get("tx_from_address", "").lower(),
+            "amountUSD": attrs.get("volume_in_usd", "0"),
+            "timestamp": ts,
+        })
+
+    return result
