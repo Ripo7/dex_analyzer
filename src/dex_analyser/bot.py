@@ -5,9 +5,12 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands, tasks
 
-from .analyser import discover_and_rank
-from .models import RankedToken, TokenSafety
+from .analyser import analyse, discover_and_rank
+from .dexscreener import discover_tokens
+from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
+from .bscscan import fetch_token_transfers
+from .whale import find_whales
 from . import positions as pos_store
 
 DISCORD_CHANNEL_ID: int = 0  # set by run()
@@ -106,6 +109,37 @@ def _build_summary_embed(ranked: list[RankedToken], use_goplus: bool = True) -> 
         color=top_color,
     )
     embed.set_footer(text=f"Scanned at {now}  |  {safety_label}  |  Next in ~{SCAN_INTERVAL_HOURS:.0f}h")
+    return embed
+
+
+def _fmt_wallet(addr: str) -> str:
+    return f"`{addr[:6]}…{addr[-4:]}`"
+
+
+def _fmt_ago(minutes: int) -> str:
+    return f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago"
+
+
+def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int) -> discord.Embed:
+    url = f"https://dexscreener.com/{token.chain}/{token.pair_address}"
+    lines: list[str] = []
+    for i, w in enumerate(whales, 1):
+        lines.append(
+            f"**#{i}** {_fmt_wallet(w.wallet)}  "
+            f"{_fmt_usd(w.total_bought_usd)} · "
+            f"{w.tx_count} txn{'s' if w.tx_count > 1 else ''} · "
+            f"{_fmt_ago(w.last_buy_ago_minutes)}"
+        )
+    safety_line = _fmt_safety(token.safety)
+    description = "\n".join(lines) if lines else "_No whales found_"
+    if safety_line:
+        description = f"{safety_line}\n\n{description}"
+    embed = discord.Embed(
+        title=f"🐋 [{token.symbol}]({url}) · BSC",
+        description=description,
+        color=0x9B59B6,
+    )
+    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $5K buy  ·  Last 6h")
     return embed
 
 
@@ -237,6 +271,57 @@ async def scan_cmd(ctx: commands.Context) -> None:
 async def scan_raw_cmd(ctx: commands.Context) -> None:
     """Scan without GoPlus — faster, shows all tokens including unverified ones."""
     await _run_scan(ctx.channel, use_goplus=False)
+
+
+@bot.command(name="whale")
+async def whale_cmd(ctx: commands.Context) -> None:
+    """Hunt for whales on the top 5 BSC tokens (min $5K buy, last 6h)."""
+    if not os.environ.get("BSCSCAN_API_KEY"):
+        await ctx.channel.send("❌ `BSCSCAN_API_KEY` env var not set.")
+        return
+
+    status_msg = await ctx.channel.send("🐋 Scanning BSC tokens…")
+    loop = asyncio.get_event_loop()
+
+    try:
+        all_tokens = await loop.run_in_executor(None, discover_tokens)
+    except Exception as exc:
+        await status_msg.edit(content=f"❌ Discovery failed: {exc}")
+        return
+
+    bsc_tokens = [t for t in all_tokens if t.chain.lower() == "bsc"]
+    ranked = analyse(bsc_tokens, top_n=5)
+
+    if not ranked:
+        await status_msg.edit(content="🐋 No BSC tokens passed filters.")
+        return
+
+    # GoPlus safety check + honeypot filter
+    safety_results = await asyncio.gather(
+        *[loop.run_in_executor(None, lambda r=r: fetch_safety(r.token.chain, r.token.address))
+          for r in ranked]
+    )
+    for r, safety in zip(ranked, safety_results):
+        r.token.safety = safety
+    ranked = [r for r in ranked if not (r.token.safety and r.token.safety.is_honeypot)]
+
+    if not ranked:
+        await status_msg.edit(content="🐋 All tokens flagged as honeypots.")
+        return
+
+    await status_msg.edit(content=f"🐋 Fetching whale data for {len(ranked)} tokens…")
+
+    # Fetch on-chain transfers for all tokens in parallel
+    transfer_results = await asyncio.gather(
+        *[loop.run_in_executor(None, lambda r=r: fetch_token_transfers(r.token.address))
+          for r in ranked]
+    )
+
+    await status_msg.delete()
+    for i, (r, transfers) in enumerate(zip(ranked, transfer_results), 1):
+        whales = find_whales(r.token, transfers)
+        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked))
+        await ctx.channel.send(embed=embed)
 
 
 def run() -> None:
