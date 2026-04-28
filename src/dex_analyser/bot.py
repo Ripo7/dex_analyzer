@@ -9,7 +9,7 @@ from .analyser import analyse, discover_and_rank
 from .dexscreener import discover_tokens, discover_bsc_tokens
 from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
-from .thegraph import fetch_pair_swaps
+from .thegraph import fetch_pair_swaps, discover_trending_bsc_pools
 from .whale import find_whales_from_swaps
 from . import positions as pos_store
 
@@ -120,8 +120,11 @@ def _fmt_ago(minutes: int) -> str:
     return f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago"
 
 
-def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int, transfer_count: int = 0) -> discord.Embed:
-    url = f"https://dexscreener.com/{token.chain}/{token.pair_address}"
+def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: int, swap_count: int = 0) -> discord.Embed:
+    symbol = pool["symbol"]
+    addr = pool["pool_address"]
+    vol = pool["volume_24h"]
+    url = f"https://www.geckoterminal.com/bsc/pools/{addr}"
     lines: list[str] = []
     for i, w in enumerate(whales, 1):
         lines.append(
@@ -130,16 +133,13 @@ def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int, t
             f"{w.tx_count} txn{'s' if w.tx_count > 1 else ''} · "
             f"{_fmt_ago(w.last_buy_ago_minutes)}"
         )
-    safety_line = _fmt_safety(token.safety)
-    description = "\n".join(lines) if lines else "_No whales found_"
-    if safety_line:
-        description = f"{safety_line}\n\n{description}"
+    description = "\n".join(lines) if lines else "_No whale buys found_"
     embed = discord.Embed(
-        title=f"🐋 [{token.symbol}]({url}) · BSC",
+        title=f"🐋 [{symbol}]({url}) · BSC",
         description=description,
         color=0x9B59B6,
     )
-    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $500 buy  ·  Last 6h  ·  {transfer_count} transfers scanned")
+    embed.set_footer(text=f"Pool {rank}/{total}  ·  Min $500 buy  ·  Last 6h  ·  Vol {_fmt_usd(vol)}  ·  {swap_count} trades scanned")
     return embed
 
 
@@ -278,52 +278,26 @@ async def scan_raw_cmd(ctx: commands.Context) -> None:
 
 @bot.command(name="whale")
 async def whale_cmd(ctx: commands.Context) -> None:
-    """Hunt for whales on the top 5 BSC tokens via PancakeSwap swaps (min $1K, last 6h)."""
-    status_msg = await ctx.channel.send("🐋 Scanning BSC tokens…")
+    """Find whale buyers on top 5 trending BSC pools via GeckoTerminal (min $500, last 6h)."""
+    status_msg = await ctx.channel.send("🐋 Fetching trending BSC pools…")
     loop = asyncio.get_event_loop()
 
-    try:
-        bsc_tokens = await loop.run_in_executor(None, discover_bsc_tokens)
-    except Exception as exc:
-        await status_msg.edit(content=f"❌ Discovery failed: {exc}")
+    pools = await loop.run_in_executor(None, discover_trending_bsc_pools)
+    if not pools:
+        await status_msg.edit(content="🐋 Could not fetch trending BSC pools.")
         return
 
-    if not bsc_tokens:
-        await status_msg.edit(content="🐋 No BSC tokens found on DexScreener.")
-        return
+    await status_msg.edit(content=f"🐋 Scanning {len(pools)} pools for whale activity…")
 
-    # Pick top 5 by volume — require real activity ($50K+ vol) so there's whale-level trading
-    ranked = analyse(bsc_tokens, top_n=5, min_liquidity=25_000, min_volume=50_000)
-    if not ranked:
-        ranked_tokens = sorted(bsc_tokens, key=lambda t: t.volume_24h, reverse=True)[:5]
-        from .models import RankedToken
-        ranked = [RankedToken(token=t, score=0.0, status="TRENDING", volume_spike=False) for t in ranked_tokens]
-
-    # GoPlus safety check + honeypot filter
-    safety_results = await asyncio.gather(
-        *[loop.run_in_executor(None, lambda r=r: fetch_safety(r.token.chain, r.token.address))
-          for r in ranked]
-    )
-    for r, safety in zip(ranked, safety_results):
-        r.token.safety = safety
-    ranked = [r for r in ranked if not (r.token.safety and r.token.safety.is_honeypot)]
-
-    if not ranked:
-        await status_msg.edit(content="🐋 All tokens flagged as honeypots.")
-        return
-
-    await status_msg.edit(content=f"🐋 Fetching swap data for {len(ranked)} tokens…")
-
-    # Fetch PancakeSwap swaps for all pair addresses in parallel
     swap_results = await asyncio.gather(
-        *[loop.run_in_executor(None, lambda r=r: fetch_pair_swaps(r.token.pair_address))
-          for r in ranked]
+        *[loop.run_in_executor(None, lambda p=p: fetch_pair_swaps(p["pool_address"]))
+          for p in pools]
     )
 
     await status_msg.delete()
-    for i, (r, swaps) in enumerate(zip(ranked, swap_results), 1):
+    for i, (pool, swaps) in enumerate(zip(pools, swap_results), 1):
         whales = find_whales_from_swaps(swaps)
-        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked), transfer_count=len(swaps))
+        embed = _build_whale_embed(pool, whales, rank=i, total=len(pools), swap_count=len(swaps))
         await ctx.channel.send(embed=embed)
 
 
