@@ -42,6 +42,14 @@ class Token:
 
 
 @dataclass
+class WhaleEntry:
+    wallet: str
+    total_bought_usd: float
+    tx_count: int
+    last_buy_ago_minutes: int
+
+
+@dataclass
 class RankedToken:
     token: Token
     score: float
