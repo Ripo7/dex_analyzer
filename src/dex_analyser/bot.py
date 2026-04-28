@@ -151,8 +151,6 @@ def _build_whale_embed(pool: dict, whales: list[WhaleEntry], rank: int, total: i
         bscscan = f"https://bscscan.com/address/{w.wallet}"
         portfolio = _fmt_portfolio(w.portfolio_usd)
         flag_parts = []
-        if "also_sold" in w.flags:
-            flag_parts.append("⚠️ Also sold")
         if "bot_rapid" in w.flags:
             flag_parts.append("🤖 Rapid-fire")
         if "empty_wallet" in w.flags:
