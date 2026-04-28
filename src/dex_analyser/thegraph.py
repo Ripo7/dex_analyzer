@@ -4,7 +4,44 @@ from datetime import datetime, timezone
 import requests
 
 _BASE = "https://api.geckoterminal.com/api/v2"
+_HEADERS = {"Accept": "application/json;version=20230302"}
 _TIMEOUT = 15
+
+_SKIP_SYMBOLS = {"WBNB", "BNB", "USDT", "BUSD", "USDC", "DAI", "WETH", "ETH", "BTCB"}
+
+
+def discover_trending_bsc_pools(top_n: int = 5) -> list[dict]:
+    """Return top trending BSC pools from GeckoTerminal, excluding stables/majors."""
+    try:
+        resp = requests.get(
+            f"{_BASE}/networks/bsc/trending_pools",
+            headers=_HEADERS,
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        pools = resp.json().get("data", [])
+    except requests.RequestException as e:
+        print(f"[gecko] trending pools error: {e}", flush=True)
+        return []
+
+    result = []
+    for pool in pools:
+        attrs = pool.get("attributes", {})
+        name = attrs.get("name", "")
+        # name is like "CAKE / WBNB" — base token is before the slash
+        base_symbol = name.split("/")[0].strip().upper()
+        if base_symbol in _SKIP_SYMBOLS:
+            continue
+        result.append({
+            "pool_address": attrs.get("address", ""),
+            "symbol": base_symbol,
+            "volume_24h": float((attrs.get("volume_usd") or {}).get("h24") or 0),
+        })
+        if len(result) >= top_n:
+            break
+
+    print(f"[gecko] found {len(result)} trending BSC pools: {[r['symbol'] for r in result]}", flush=True)
+    return result
 
 
 def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> list[dict]:
@@ -17,7 +54,7 @@ def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> lis
         resp = requests.get(
             url,
             params={"trade_volume_in_usd_greater_than": 0},
-            headers={"Accept": "application/json;version=20230302"},
+            headers=_HEADERS,
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
@@ -29,7 +66,6 @@ def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> lis
     trades = data.get("data", [])
     print(f"[gecko] got {len(trades)} trades for {pair_address[:10]}…", flush=True)
 
-    # Normalise to the dict shape whale.py expects: to, amountUSD, timestamp
     result: list[dict] = []
     for trade in trades:
         attrs = trade.get("attributes", {})
