@@ -40,10 +40,12 @@ def fetch_token_transfers(contract_addr: str, hours: int = 6) -> list[Transfer]:
         )
         resp.raise_for_status()
         data = resp.json()
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"[bscscan] request error: {e}", flush=True)
         return []
 
     if data.get("status") != "1" or not isinstance(data.get("result"), list):
+        print(f"[bscscan] status={data.get('status')!r} msg={data.get('message')!r} result={str(data.get('result'))[:200]}", flush=True)
         return []
 
     cutoff = int(time.time()) - hours * 3600
