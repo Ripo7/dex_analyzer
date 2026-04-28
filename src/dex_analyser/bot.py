@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands, tasks
 
 from .analyser import analyse, discover_and_rank
-from .dexscreener import discover_tokens
+from .dexscreener import discover_tokens, discover_bsc_tokens
 from .models import RankedToken, TokenSafety, WhaleEntry
 from .goplus import fetch_safety
 from .bscscan import fetch_token_transfers
@@ -287,17 +287,21 @@ async def whale_cmd(ctx: commands.Context) -> None:
     loop = asyncio.get_event_loop()
 
     try:
-        all_tokens = await loop.run_in_executor(None, discover_tokens)
+        bsc_tokens = await loop.run_in_executor(None, discover_bsc_tokens)
     except Exception as exc:
         await status_msg.edit(content=f"❌ Discovery failed: {exc}")
         return
 
-    bsc_tokens = [t for t in all_tokens if t.chain.lower() == "bsc"]
-    ranked = analyse(bsc_tokens, top_n=5)
-
-    if not ranked:
-        await status_msg.edit(content="🐋 No BSC tokens passed filters.")
+    if not bsc_tokens:
+        await status_msg.edit(content="🐋 No BSC tokens found on DexScreener.")
         return
+
+    # Rank by volume — skip strict score/scam filters, GoPlus handles safety
+    ranked = analyse(bsc_tokens, top_n=5, min_liquidity=5_000, min_volume=5_000)
+    if not ranked:
+        ranked_tokens = sorted(bsc_tokens, key=lambda t: t.volume_24h, reverse=True)[:5]
+        from .models import RankedToken
+        ranked = [RankedToken(token=t, score=0.0, status="TRENDING", volume_spike=False) for t in ranked_tokens]
 
     # GoPlus safety check + honeypot filter
     safety_results = await asyncio.gather(
