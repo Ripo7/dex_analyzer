@@ -3,7 +3,7 @@ import time
 from .bscscan import Transfer
 from .models import Token, WhaleEntry
 
-_MIN_BUY_USD = 1_000.0
+_MIN_BUY_USD = 500.0
 _WHALE_HOURS = 6
 
 
