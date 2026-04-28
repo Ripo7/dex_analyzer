@@ -91,6 +91,31 @@ def _fetch_discovery(path: str) -> list[dict]:
         return []
 
 
+def discover_bsc_tokens(top_n: int = 20) -> list[Token]:
+    """Return the top BSC tokens by 24h volume from DexScreener search."""
+    tokens: list[Token] = []
+    seen: set[str] = set()
+
+    for query in ("WBNB", "USDT BSC", "BUSD"):
+        try:
+            resp = requests.get(f"{_BASE}/search", params={"q": query}, timeout=_TIMEOUT)
+            resp.raise_for_status()
+            pairs = resp.json().get("pairs") or []
+        except requests.RequestException:
+            continue
+
+        for pair in pairs:
+            if pair.get("chainId", "").lower() != "bsc":
+                continue
+            tok = _pair_to_token(pair)
+            if tok and tok.address and tok.address not in seen:
+                seen.add(tok.address)
+                tokens.append(tok)
+
+    tokens.sort(key=lambda t: t.volume_24h, reverse=True)
+    return tokens[:top_n]
+
+
 def discover_tokens() -> list[Token]:
     """
     Fetch recently listed and top-boosted tokens from DexScreener discovery endpoints,
