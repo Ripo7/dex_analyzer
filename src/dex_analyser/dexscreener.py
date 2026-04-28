@@ -91,8 +91,11 @@ def _fetch_discovery(path: str) -> list[dict]:
         return []
 
 
+_BSC_SKIP_SYMBOLS = {"WBNB", "BNB", "USDT", "BUSD", "USDC", "DAI", "WETH", "ETH", "BTCB"}
+
+
 def discover_bsc_tokens(top_n: int = 20) -> list[Token]:
-    """Return the top BSC tokens by 24h volume from DexScreener search."""
+    """Return trending BSC altcoins by 24h volume — excludes stables and wrapped majors."""
     tokens: list[Token] = []
     seen: set[str] = set()
 
@@ -108,7 +111,11 @@ def discover_bsc_tokens(top_n: int = 20) -> list[Token]:
             if pair.get("chainId", "").lower() != "bsc":
                 continue
             tok = _pair_to_token(pair)
-            if tok and tok.address and tok.address not in seen:
+            if not tok or not tok.address:
+                continue
+            if tok.symbol.upper() in _BSC_SKIP_SYMBOLS:
+                continue
+            if tok.address not in seen:
                 seen.add(tok.address)
                 tokens.append(tok)
 
