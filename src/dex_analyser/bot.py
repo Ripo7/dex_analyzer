@@ -120,7 +120,7 @@ def _fmt_ago(minutes: int) -> str:
     return f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago"
 
 
-def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int) -> discord.Embed:
+def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int, transfer_count: int = 0) -> discord.Embed:
     url = f"https://dexscreener.com/{token.chain}/{token.pair_address}"
     lines: list[str] = []
     for i, w in enumerate(whales, 1):
@@ -139,7 +139,7 @@ def _build_whale_embed(token, whales: list[WhaleEntry], rank: int, total: int) -
         description=description,
         color=0x9B59B6,
     )
-    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $5K buy  ·  Last 6h")
+    embed.set_footer(text=f"Token {rank}/{total}  ·  Min $1K buy  ·  Last 6h  ·  {transfer_count} transfers scanned")
     return embed
 
 
@@ -327,7 +327,7 @@ async def whale_cmd(ctx: commands.Context) -> None:
     await status_msg.delete()
     for i, (r, transfers) in enumerate(zip(ranked, transfer_results), 1):
         whales = find_whales(r.token, transfers)
-        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked))
+        embed = _build_whale_embed(r.token, whales, rank=i, total=len(ranked), transfer_count=len(transfers))
         await ctx.channel.send(embed=embed)
 
 
