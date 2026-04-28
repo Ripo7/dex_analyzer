@@ -24,6 +24,7 @@ query($pair: String!, $cutoff: Int!, $first: Int!) {
 def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> list[dict]:
     """Return swap events for a PancakeSwap v2 pair in the last `hours` hours."""
     cutoff = int(time.time()) - hours * 3600
+    print(f"[thegraph] querying pair={pair_address.lower()} cutoff={cutoff}", flush=True)
     try:
         resp = requests.post(
             _ENDPOINT,
@@ -48,4 +49,6 @@ def fetch_pair_swaps(pair_address: str, hours: int = 6, limit: int = 500) -> lis
         print(f"[thegraph] errors: {errors}", flush=True)
         return []
 
-    return data.get("data", {}).get("swaps", [])
+    swaps = data.get("data", {}).get("swaps", [])
+    print(f"[thegraph] got {len(swaps)} swaps for {pair_address[:10]}…", flush=True)
+    return swaps
